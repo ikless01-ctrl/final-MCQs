@@ -1,130 +1,259 @@
 (function () {
   "use strict";
 
-  const cachePrefix = "mcq-ai-explanation-v1:";
+  const cachePrefix = "mcq-ai-explanation-v2:";
 
-  function escapeHtmlSafe(value) {
-    return String(value ?? "").replace(/[&<>'"]/g, ch => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
-    }[ch]));
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>'"]/g, character => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "'": "&#39;",
+      '"': "&quot;"
+    })[character]);
+  }
+
+  function getQuestion(index) {
+    try {
+      return exam[index];
+    } catch {
+      return null;
+    }
+  }
+
+  function getSelectedAnswers(index) {
+    try {
+      return [...(answers[index] || [])];
+    } catch {
+      return [];
+    }
+  }
+
+  function getCurrentIndex() {
+    try {
+      return current;
+    } catch {
+      return -1;
+    }
   }
 
   function endpointIsReady() {
-    return typeof window.MCQ_AI_ENDPOINT === "string" &&
-      /^https:\/\//.test(window.MCQ_AI_ENDPOINT) &&
-      !window.MCQ_AI_ENDPOINT.includes("PASTE_YOUR");
+    return (
+      typeof window.MCQ_AI_ENDPOINT === "string" &&
+      window.MCQ_AI_ENDPOINT.startsWith("https://") &&
+      !window.MCQ_AI_ENDPOINT.includes("PASTE_YOUR")
+    );
   }
 
-  function questionKey(q) {
-    const raw = JSON.stringify({ q: q.question, o: q.options, c: q.category, n: q.num });
+  function createCacheKey(question) {
+    const content = JSON.stringify({
+      question: question.question,
+      options: question.options,
+      category: question.category,
+      number: question.num
+    });
+
     let hash = 0;
-    for (let i = 0; i < raw.length; i++) hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
+
+    for (let index = 0; index < content.length; index++) {
+      hash = ((hash << 5) - hash + content.charCodeAt(index)) | 0;
+    }
+
     return cachePrefix + Math.abs(hash);
   }
 
-  function showMainButton() {
-    const btn = document.getElementById("explainBtn");
+  function updateExplainButton() {
+    const button = document.getElementById("explainBtn");
     const feedback = document.getElementById("feedback");
-    if (!btn || !feedback) return;
-    btn.textContent = "Explain with AI";
-    btn.classList.toggle("hidden", feedback.classList.contains("hidden"));
+
+    if (!button || !feedback) {
+      return;
+    }
+
+    button.textContent = "Explain with AI";
+    button.classList.toggle(
+      "hidden",
+      feedback.classList.contains("hidden")
+    );
   }
 
   const originalRenderQuestion = window.renderQuestion;
+
   if (typeof originalRenderQuestion === "function") {
     window.renderQuestion = function () {
       originalRenderQuestion.apply(this, arguments);
-      showMainButton();
-      const box = document.getElementById("explanation");
-      if (box) { box.classList.add("hidden"); box.innerHTML = ""; }
+      updateExplainButton();
+
+      const explanationBox =
+        document.getElementById("explanation");
+
+      if (explanationBox) {
+        explanationBox.classList.add("hidden");
+        explanationBox.innerHTML = "";
+      }
     };
   }
 
-  function refreshReviewButtons() {
-    document.querySelectorAll("#reviewAll .explain-actions button").forEach((button, index) => {
-      button.textContent = "Explain with AI";
-      button.classList.remove("light");
-      button.classList.add("ai-button");
-      button.onclick = () => window.requestAIExplanation(index, button);
-    });
-  }
-
-  const originalFullReview = window.renderFullReview;
-  if (typeof originalFullReview === "function") {
-    window.renderFullReview = function () {
-      originalFullReview.apply(this, arguments);
-      refreshReviewButtons();
-    };
-  }
-
-  window.toggleExplanation = function (i) {
-    return window.requestAIExplanation(i, document.getElementById("explainBtn"));
-  };
-  window.copyQuestionForAI = function (i) {
-    return window.requestAIExplanation(i, null);
+  window.toggleExplanation = function (index) {
+    return window.requestAIExplanation(
+      index,
+      document.getElementById("explainBtn")
+    );
   };
 
-  window.requestAIExplanation = async function (i, button) {
-    const q = window.exam?.[i];
-    if (!q) return;
+  window.copyQuestionForAI = function (index) {
+    return window.requestAIExplanation(index, null);
+  };
 
-    if (!endpointIsReady()) {
-      alert("AI is not connected yet. Open ai-config.js and paste your Cloudflare Worker URL.");
+  window.requestAIExplanation = async function (index, button) {
+    const question = getQuestion(index);
+
+    if (!question) {
+      alert(
+        "The question could not be read. Refresh the page and try again."
+      );
       return;
     }
 
-    let box;
-    if (document.getElementById("exam") && !document.getElementById("exam").classList.contains("hidden") && i === window.current) {
-      box = document.getElementById("explanation");
+    if (!endpointIsReady()) {
+      alert(
+        "AI is not connected. Check the Vercel address in ai-config.js."
+      );
+      return;
+    }
+
+    let explanationBox;
+
+    const examSection = document.getElementById("exam");
+
+    if (
+      examSection &&
+      !examSection.classList.contains("hidden") &&
+      index === getCurrentIndex()
+    ) {
+      explanationBox =
+        document.getElementById("explanation");
     } else {
-      const cards = document.querySelectorAll("#reviewAll main.card");
-      const card = cards[i];
-      if (!card) return;
-      box = card.querySelector(".ai-review-explanation");
-      if (!box) {
-        box = document.createElement("div");
-        box.className = "explain-box ai-review-explanation";
-        card.appendChild(box);
+      const reviewCards =
+        document.querySelectorAll("#reviewAll main.card");
+
+      const reviewCard = reviewCards[index];
+
+      if (!reviewCard) {
+        alert("The explanation area could not be found.");
+        return;
+      }
+
+      explanationBox =
+        reviewCard.querySelector(".ai-review-explanation");
+
+      if (!explanationBox) {
+        explanationBox = document.createElement("div");
+        explanationBox.className =
+          "explain-box ai-review-explanation";
+
+        reviewCard.appendChild(explanationBox);
       }
     }
 
-    const key = questionKey(q);
-    const cached = localStorage.getItem(key);
-    if (cached) {
-      box.innerHTML = `<h3>AI explanation</h3><div class="ai-text">${escapeHtmlSafe(cached).replace(/\n/g, "<br>")}</div>`;
-      box.classList.remove("hidden");
+    const cacheKey = createCacheKey(question);
+    const cachedExplanation =
+      localStorage.getItem(cacheKey);
+
+    if (cachedExplanation) {
+      explanationBox.innerHTML =
+        "<h3>AI explanation</h3>" +
+        '<div class="ai-text">' +
+        escapeHtml(cachedExplanation).replace(/\n/g, "<br>") +
+        "</div>";
+
+      explanationBox.classList.remove("hidden");
       return;
     }
 
-    const oldText = button?.textContent;
-    if (button) { button.disabled = true; button.textContent = "Explaining…"; }
-    box.classList.remove("hidden");
-    box.innerHTML = '<div class="ai-loading">Generating a clear explanation…</div>';
+    const oldButtonText = button?.textContent;
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Explaining…";
+    }
+
+    explanationBox.classList.remove("hidden");
+    explanationBox.innerHTML =
+      '<div class="ai-loading">' +
+      "Generating a clear explanation…" +
+      "</div>";
 
     try {
-      const selected = [...(window.answers?.[i] || [])];
-      const response = await fetch(window.MCQ_AI_ENDPOINT.replace(/\/$/, "") + "/explain", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: q.question,
-          category: q.category,
-          sourceNumber: q.num,
-          options: q.options.map(o => ({ letter: o.letter, text: o.text, correct: !!o.correct })),
-          selectedAnswers: selected
-        })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || "The AI service returned an error.");
-      const explanation = String(data.explanation || "No explanation was returned.");
-      localStorage.setItem(key, explanation);
-      box.innerHTML = `<h3>AI explanation</h3><div class="ai-text">${escapeHtmlSafe(explanation).replace(/\n/g, "<br>")}</div><div class="small-note">AI can make mistakes. Use this as a study aid and check important medical facts against your course materials.</div>`;
+      const response = await fetch(
+        window.MCQ_AI_ENDPOINT.replace(/\/$/, "") +
+          "/explain",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            question: question.question,
+            category: question.category,
+            sourceNumber: question.num,
+            options: question.options.map(option => ({
+              letter: option.letter,
+              text: option.text,
+              correct: Boolean(option.correct)
+            })),
+            selectedAnswers:
+              getSelectedAnswers(index)
+          })
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+          "The AI service returned an error."
+        );
+      }
+
+      const explanation = String(
+        data.explanation ||
+        "No explanation was returned."
+      );
+
+      localStorage.setItem(cacheKey, explanation);
+
+      explanationBox.innerHTML =
+        "<h3>AI explanation</h3>" +
+        '<div class="ai-text">' +
+        escapeHtml(explanation).replace(/\n/g, "<br>") +
+        "</div>" +
+        '<div class="small-note">' +
+        "AI can make mistakes. Check important medical facts " +
+        "against your course materials." +
+        "</div>";
     } catch (error) {
-      box.innerHTML = `<div class="ai-error"><strong>Could not load the explanation.</strong><br>${escapeHtmlSafe(error.message)}<br><br>Check the Worker URL and API key, then try again.</div>`;
+      explanationBox.innerHTML =
+        '<div class="ai-error">' +
+        "<strong>Could not load the explanation.</strong><br>" +
+        escapeHtml(error.message) +
+        "<br><br>" +
+        "Check the Vercel deployment and Gemini key, then try again." +
+        "</div>";
     } finally {
-      if (button) { button.disabled = false; button.textContent = oldText || "Explain with AI"; }
+      if (button) {
+        button.disabled = false;
+        button.textContent =
+          oldButtonText || "Explain with AI";
+      }
     }
   };
 
-  document.addEventListener("DOMContentLoaded", showMainButton);
+  document.addEventListener(
+    "DOMContentLoaded",
+    updateExplainButton
+  );
 })();
