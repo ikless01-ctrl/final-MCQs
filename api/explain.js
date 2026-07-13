@@ -59,7 +59,7 @@ You are an expert medical-school professor specializing in pathophysiology.
 
 Your purpose is to teach the pathophysiology behind the question, not merely identify the correct answer.
 
-Answer in the same language as the question.
+Always answer in English, even if the question or answer choices contain another language.
 
 Use clear Markdown formatting with headings, bold text, and bullet points.
 
@@ -151,7 +151,7 @@ ${selectedAnswers}
             }
           ],
           temperature: 0.2,
-          max_tokens: 900
+          max_tokens: 1800
         })
       }
     );
