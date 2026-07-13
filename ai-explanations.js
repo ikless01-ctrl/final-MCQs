@@ -159,4 +159,115 @@
   };
 
   document.addEventListener("DOMContentLoaded", showExplainButton);
+    function updateReviewButtons() {
+    const reviewCards =
+      document.querySelectorAll("#reviewAll main.card");
+
+    reviewCards.forEach(function (card, index) {
+      const button =
+        card.querySelector(".explain-actions button");
+
+      if (!button) return;
+
+      button.textContent = "Explain with AI";
+      button.classList.remove("light");
+      button.classList.add("ai-button");
+
+      button.onclick = async function () {
+        let explanationBox =
+          card.querySelector(".ai-review-explanation");
+
+        if (!explanationBox) {
+          explanationBox = document.createElement("div");
+          explanationBox.className =
+            "explain-box ai-review-explanation";
+          card.appendChild(explanationBox);
+        }
+
+        let question;
+
+        try {
+          question = exam[index];
+        } catch {
+          question = null;
+        }
+
+        if (!question) {
+          alert("The question could not be read.");
+          return;
+        }
+
+        button.disabled = true;
+        button.textContent = "Explaining…";
+
+        explanationBox.classList.remove("hidden");
+        explanationBox.innerHTML =
+          '<div class="ai-loading">Generating an explanation…</div>';
+
+        try {
+          const response = await fetch(
+            window.MCQ_AI_ENDPOINT.replace(/\/$/, "") +
+              "/explain",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                question: question.question,
+                category: question.category,
+                options: question.options.map(function (option) {
+                  return {
+                    letter: option.letter,
+                    text: option.text,
+                    correct: Boolean(option.correct)
+                  };
+                }),
+                selectedAnswers: Array.from(
+                  answers[index] || []
+                )
+              })
+            }
+          );
+
+          const data = await response.json().catch(function () {
+            return {};
+          });
+
+          if (!response.ok) {
+            throw new Error(
+              data.error ||
+              "The AI service returned an error."
+            );
+          }
+
+          explanationBox.innerHTML =
+            "<h3>AI explanation</h3>" +
+            '<div class="ai-text">' +
+            safeText(data.explanation || "")
+              .replace(/\n/g, "<br>") +
+            "</div>";
+        } catch (error) {
+          explanationBox.innerHTML =
+            '<div class="ai-error">' +
+            "<strong>Could not load the explanation.</strong><br>" +
+            safeText(error.message) +
+            "</div>";
+        } finally {
+          button.disabled = false;
+          button.textContent = "Explain with AI";
+        }
+      };
+    });
+  }
+
+  const originalRenderFullReview =
+    window.renderFullReview;
+
+  if (typeof originalRenderFullReview === "function") {
+    window.renderFullReview = function () {
+      originalRenderFullReview.apply(this, arguments);
+      updateReviewButtons();
+    };
+  }
 })();
