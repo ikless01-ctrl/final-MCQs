@@ -15,12 +15,14 @@ module.exports = async function handler(req, res) {
   }
 
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed." });
+    return res.status(405).json({
+      error: "Method not allowed."
+    });
   }
 
-  if (!process.env.GEMINI_API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY) {
     return res.status(500).json({
-      error: "GEMINI_API_KEY has not been added in Vercel."
+      error: "OPENROUTER_API_KEY has not been added in Vercel."
     });
   }
 
@@ -32,20 +34,23 @@ module.exports = async function handler(req, res) {
       !Array.isArray(body.options) ||
       body.options.length < 2
     ) {
-      return res.status(400).json({ error: "Invalid question data." });
+      return res.status(400).json({
+        error: "Invalid question data."
+      });
     }
 
     const options = body.options
-      .map((option) => `${option.letter}. ${option.text}`)
+      .map(option => `${option.letter}. ${option.text}`)
       .join("\n");
 
     const correctAnswers = body.options
-      .filter((option) => Boolean(option.correct))
-      .map((option) => `${option.letter}. ${option.text}`)
+      .filter(option => Boolean(option.correct))
+      .map(option => `${option.letter}. ${option.text}`)
       .join("\n");
 
     const selectedAnswers =
-      Array.isArray(body.selectedAnswers) && body.selectedAnswers.length
+      Array.isArray(body.selectedAnswers) &&
+      body.selectedAnswers.length
         ? body.selectedAnswers.join(", ")
         : "No answer selected";
 
@@ -55,11 +60,11 @@ You are a careful university pathophysiology tutor.
 Explain in the same language as the question.
 Explain why every officially correct option is correct.
 Briefly explain why every incorrect option is incorrect.
-Treat the supplied answer key as the expected exam answer, but clearly flag
-ambiguity or a likely error instead of inventing a justification.
+Treat the supplied answer key as the expected exam answer, but clearly flag ambiguity or a likely error.
 Be concise, educational, and do not provide personal medical advice.
 
-Category: ${body.category || "Pathophysiology"}
+Category:
+${body.category || "Pathophysiology"}
 
 Question:
 ${body.question}
@@ -74,52 +79,57 @@ Student selected:
 ${selectedAnswers}
 `.trim();
 
-    const geminiResponse = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    const openRouterResponse = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
       {
         method: "POST",
         headers: {
+          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
           "Content-Type": "application/json",
-          "x-goog-api-key": process.env.GEMINI_API_KEY
+          "HTTP-Referer": "https://ikless01-ctrl.github.io/final-MCQs/",
+          "X-Title": "Pathophysiology MCQ Explainer"
         },
         body: JSON.stringify({
-          contents: [
+          model: "openrouter/free",
+          messages: [
             {
               role: "user",
-              parts: [{ text: prompt }]
+              content: prompt
             }
           ],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 900
-          }
+          temperature: 0.2,
+          max_tokens: 900
         })
       }
     );
 
-    const data = await geminiResponse.json();
+    const data = await openRouterResponse.json();
 
-    if (!geminiResponse.ok) {
-      return res.status(geminiResponse.status).json({
-        error: data?.error?.message || "Gemini returned an error."
+    if (!openRouterResponse.ok) {
+      return res.status(openRouterResponse.status).json({
+        error:
+          data?.error?.message ||
+          "OpenRouter returned an error."
       });
     }
 
-    const explanation = data?.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text || "")
-      .join("")
-      .trim();
+    const explanation =
+      data?.choices?.[0]?.message?.content?.trim();
 
     if (!explanation) {
       return res.status(502).json({
-        error: "Gemini did not return an explanation."
+        error: "OpenRouter did not return an explanation."
       });
     }
 
-    return res.status(200).json({ explanation });
+    return res.status(200).json({
+      explanation
+    });
   } catch (error) {
     return res.status(500).json({
-      error: error?.message || "Unexpected server error."
+      error:
+        error?.message ||
+        "Unexpected server error."
     });
   }
 };
