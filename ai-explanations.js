@@ -1,259 +1,173 @@
-(function () {
-  "use strict";
+const ALLOWED_ORIGIN = "https://ikless01-ctrl.github.io";
 
-  const cachePrefix = "mcq-ai-explanation-v2:";
+function setCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Vary", "Origin");
+}
 
-  function escapeHtml(value) {
-    return String(value ?? "").replace(/[&<>'"]/g, character => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      "'": "&#39;",
-      '"': "&quot;"
-    })[character]);
-  }
+function buildPrompt(body) {
+  const options = body.options
+    .map((option) => `${option.letter}. ${option.text}`)
+    .join("\n");
 
-  function getQuestion(index) {
-    try {
-      return exam[index];
-    } catch {
-      return null;
+  const correctAnswers = body.options
+    .filter((option) => Boolean(option.correct))
+    .map((option) => `${option.letter}. ${option.text}`)
+    .join("\n");
+
+  const selectedAnswers =
+    Array.isArray(body.selectedAnswers) && body.selectedAnswers.length
+      ? body.selectedAnswers.join(", ")
+      : "No answer selected";
+
+  return `
+You are a careful university pathophysiology tutor.
+
+Explain in the same language as the question.
+Explain why every officially correct option is correct.
+Briefly explain why every incorrect option is incorrect.
+Treat the supplied answer key as the expected exam answer, but clearly flag ambiguity or a likely error instead of inventing a justification.
+Be concise, educational, and do not provide personal medical advice.
+
+Category: ${body.category || "Pathophysiology"}
+
+Question:
+${body.question}
+
+Options:
+${options}
+
+Official correct answer(s):
+${correctAnswers || "Not supplied"}
+
+Student selected:
+${selectedAnswers}
+`.trim();
+}
+
+async function callGemini(model, apiKey, prompt) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: prompt
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 900
+        }
+      })
     }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data
+  };
+}
+function extractText(data) {
+  return data?.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text || "")
+    .join("")
+    .trim();
+}
+
+module.exports = async function handler(req, res) {
+  setCors(res);
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
   }
 
-  function getSelectedAnswers(index) {
-    try {
-      return [...(answers[index] || [])];
-    } catch {
-      return [];
-    }
-  }
-
-  function getCurrentIndex() {
-    try {
-      return current;
-    } catch {
-      return -1;
-    }
-  }
-
-  function endpointIsReady() {
-    return (
-      typeof window.MCQ_AI_ENDPOINT === "string" &&
-      window.MCQ_AI_ENDPOINT.startsWith("https://") &&
-      !window.MCQ_AI_ENDPOINT.includes("PASTE_YOUR")
-    );
-  }
-
-  function createCacheKey(question) {
-    const content = JSON.stringify({
-      question: question.question,
-      options: question.options,
-      category: question.category,
-      number: question.num
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      error: "Method not allowed."
     });
-
-    let hash = 0;
-
-    for (let index = 0; index < content.length; index++) {
-      hash = ((hash << 5) - hash + content.charCodeAt(index)) | 0;
-    }
-
-    return cachePrefix + Math.abs(hash);
   }
 
-  function updateExplainButton() {
-    const button = document.getElementById("explainBtn");
-    const feedback = document.getElementById("feedback");
-
-    if (!button || !feedback) {
-      return;
-    }
-
-    button.textContent = "Explain with AI";
-    button.classList.toggle(
-      "hidden",
-      feedback.classList.contains("hidden")
-    );
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({
+      error: "GEMINI_API_KEY has not been added in Vercel."
+    });
   }
 
-  const originalRenderQuestion = window.renderQuestion;
-
-  if (typeof originalRenderQuestion === "function") {
-    window.renderQuestion = function () {
-      originalRenderQuestion.apply(this, arguments);
-      updateExplainButton();
-
-      const explanationBox =
-        document.getElementById("explanation");
-
-      if (explanationBox) {
-        explanationBox.classList.add("hidden");
-        explanationBox.innerHTML = "";
-      }
-    };
-  }
-
-  window.toggleExplanation = function (index) {
-    return window.requestAIExplanation(
-      index,
-      document.getElementById("explainBtn")
-    );
-  };
-
-  window.copyQuestionForAI = function (index) {
-    return window.requestAIExplanation(index, null);
-  };
-
-  window.requestAIExplanation = async function (index, button) {
-    const question = getQuestion(index);
-
-    if (!question) {
-      alert(
-        "The question could not be read. Refresh the page and try again."
-      );
-      return;
-    }
-
-    if (!endpointIsReady()) {
-      alert(
-        "AI is not connected. Check the Vercel address in ai-config.js."
-      );
-      return;
-    }
-
-    let explanationBox;
-
-    const examSection = document.getElementById("exam");
+  try {
+    const body = req.body || {};
 
     if (
-      examSection &&
-      !examSection.classList.contains("hidden") &&
-      index === getCurrentIndex()
+      typeof body.question !== "string" ||
+      !Array.isArray(body.options) ||
+      body.options.length < 2
     ) {
-      explanationBox =
-        document.getElementById("explanation");
-    } else {
-      const reviewCards =
-        document.querySelectorAll("#reviewAll main.card");
-
-      const reviewCard = reviewCards[index];
-
-      if (!reviewCard) {
-        alert("The explanation area could not be found.");
-        return;
-      }
-
-      explanationBox =
-        reviewCard.querySelector(".ai-review-explanation");
-
-      if (!explanationBox) {
-        explanationBox = document.createElement("div");
-        explanationBox.className =
-          "explain-box ai-review-explanation";
-
-        reviewCard.appendChild(explanationBox);
-      }
+      return res.status(400).json({
+        error: "Invalid question data."
+      });
     }
 
-    const cacheKey = createCacheKey(question);
-    const cachedExplanation =
-      localStorage.getItem(cacheKey);
+    const prompt = buildPrompt(body);
 
-    if (cachedExplanation) {
-      explanationBox.innerHTML =
-        "<h3>AI explanation</h3>" +
-        '<div class="ai-text">' +
-        escapeHtml(cachedExplanation).replace(/\n/g, "<br>") +
-        "</div>";
+    const models = [
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite-preview-06-17",
+      "gemini-2.5-pro"
+    ];
 
-      explanationBox.classList.remove("hidden");
-      return;
-    }
+    const errors = [];
 
-    const oldButtonText = button?.textContent;
+    for (const model of models) {
+      const result = await callGemini(
+        model,
+        process.env.GEMINI_API_KEY,
+        prompt
+      );
 
-    if (button) {
-      button.disabled = true;
-      button.textContent = "Explaining…";
-    }
+      if (result.ok) {
+        const explanation = extractText(result.data);
 
-    explanationBox.classList.remove("hidden");
-    explanationBox.innerHTML =
-      '<div class="ai-loading">' +
-      "Generating a clear explanation…" +
-      "</div>";
-
-    try {
-      const response = await fetch(
-        window.MCQ_AI_ENDPOINT.replace(/\/$/, "") +
-          "/explain",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            question: question.question,
-            category: question.category,
-            sourceNumber: question.num,
-            options: question.options.map(option => ({
-              letter: option.letter,
-              text: option.text,
-              correct: Boolean(option.correct)
-            })),
-            selectedAnswers:
-              getSelectedAnswers(index)
-          })
+        if (explanation) {
+          return res.status(200).json({
+            explanation,
+            model
+          });
         }
-      );
 
-      const data = await response
-        .json()
-        .catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(
-          data.error ||
-          "The AI service returned an error."
-        );
+        errors.push(`${model}: no explanation returned`);
+        continue;
       }
 
-      const explanation = String(
-        data.explanation ||
-        "No explanation was returned."
-      );
+      const message =
+        result.data?.error?.message ||
+        `HTTP ${result.status}`;
 
-      localStorage.setItem(cacheKey, explanation);
-
-      explanationBox.innerHTML =
-        "<h3>AI explanation</h3>" +
-        '<div class="ai-text">' +
-        escapeHtml(explanation).replace(/\n/g, "<br>") +
-        "</div>" +
-        '<div class="small-note">' +
-        "AI can make mistakes. Check important medical facts " +
-        "against your course materials." +
-        "</div>";
-    } catch (error) {
-      explanationBox.innerHTML =
-        '<div class="ai-error">' +
-        "<strong>Could not load the explanation.</strong><br>" +
-        escapeHtml(error.message) +
-        "<br><br>" +
-        "Check the Vercel deployment and Gemini key, then try again." +
-        "</div>";
-    } finally {
-      if (button) {
-        button.disabled = false;
-        button.textContent =
-          oldButtonText || "Explain with AI";
-      }
+      errors.push(`${model}: ${message}`);
     }
-  };
-
-  document.addEventListener(
-    "DOMContentLoaded",
-    updateExplainButton
-  );
-})();
+        return res.status(502).json({
+      error:
+        "Gemini could not generate an explanation. " +
+        errors.join(" | ")
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: error?.message || "Unexpected server error."
+    });
+  }
+};
+    
