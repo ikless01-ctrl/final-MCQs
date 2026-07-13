@@ -80,3 +80,13 @@ button,input,select,textarea{font:inherit;font-size:16px}
 .edit-panel{background:white;width:min(920px,96vw);border-radius:10px;padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.3)}
 .edit-panel h2{margin-top:0}.edit-panel label{display:block;font-weight:600;margin-top:10px}.edit-panel textarea,.edit-panel input{width:100%;box-sizing:border-box;border:1px solid #b8c2cc;border-radius:6px;padding:8px;font:inherit}.edit-panel textarea{min-height:80px}.edit-option-row{display:grid;grid-template-columns:56px 1fr 110px 80px;gap:8px;align-items:center;margin:8px 0}.edit-option-row textarea{min-height:48px}.edit-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.btn.danger{background:#b42318;color:white}.btn.small{padding:6px 8px;font-size:12px}.import-label{display:inline-block;cursor:pointer}
 @media(max-width:700px){.edit-option-row{grid-template-columns:1fr}.edit-modal{padding:8px}.edit-panel{padding:14px}}
+
+/* AI explanation add-on */
+.explain-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+.ai-button{background:#6f42c1;color:#fff}
+.explain-box{margin-top:18px;padding:18px 20px;border:1px solid #cfd8e3;border-radius:6px;background:#f8fbff;max-width:900px;white-space:normal}
+.explain-box h3{margin:0 0 12px;font-size:20px}
+.ai-text{line-height:1.65;color:#24313a}
+.ai-loading{font-weight:600;color:#465866}
+.ai-error{color:#8b1e1e;background:#fff0f0;padding:12px;border-radius:4px}
+.small-note{font-size:12px;color:#6a737b;margin-top:14px}
