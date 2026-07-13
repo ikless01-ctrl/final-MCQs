@@ -144,6 +144,9 @@ ${selectedAnswers}
         },
         body: JSON.stringify({
           model: "openrouter/free",
+        reasoning: {
+  exclude: true
+},
           messages: [
             {
               role: "user",
@@ -166,8 +169,17 @@ ${selectedAnswers}
       });
     }
 
-    const explanation =
-      data?.choices?.[0]?.message?.content?.trim();
+  const content = data?.choices?.[0]?.message?.content;
+
+const explanation =
+  typeof content === "string"
+    ? content.trim()
+    : Array.isArray(content)
+      ? content
+          .map(part => part?.text || part?.content || "")
+          .join("")
+          .trim()
+      : "";
 
     if (!explanation) {
       return res.status(502).json({
